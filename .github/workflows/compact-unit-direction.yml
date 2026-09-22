@@ -1,0 +1,21 @@
+name: compact unit direction codec
+
+on:
+  pull_request:
+    paths:
+      - 'shared/compact-unit-direction/**'
+      - '.github/workflows/compact-unit-direction.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'shared/compact-unit-direction/**'
+      - '.github/workflows/compact-unit-direction.yml'
+
+jobs:
+  host-oracle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run portable codec fixture
+        run: sh shared/compact-unit-direction/test.sh
