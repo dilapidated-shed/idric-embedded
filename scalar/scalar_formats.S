@@ -21,6 +21,44 @@ bits8_mul:
     muls    r0, r1, r0
     uxtb    r0, r0
     bx      lr
+.global e3m2_add
+.thumb_func
+e3m2_add:
+    ldr     r2, =e3m2_add_table
+    b       .Le3m2_binary_lookup
+.global e3m2_sub
+.thumb_func
+e3m2_sub:
+    ldr     r2, =e3m2_sub_table
+    b       .Le3m2_binary_lookup
+.global e3m2_mul
+.thumb_func
+e3m2_mul:
+    ldr     r2, =e3m2_mul_table
+    b       .Le3m2_binary_lookup
+.global e3m2_div
+.thumb_func
+e3m2_div:
+    ldr     r2, =e3m2_div_table
+    b       .Le3m2_binary_lookup
+.thumb_func
+.Le3m2_binary_lookup:
+    movs    r3, #63
+    ands    r0, r3
+    ands    r1, r3
+    lsls    r0, r0, #6
+    adds    r0, r0, r1
+    ldrb    r0, [r2, r0]
+    bx      lr
+.global e3m2_sqrt
+.thumb_func
+e3m2_sqrt:
+    movs    r1, #63
+    ands    r0, r1
+    ldr     r1, =e3m2_sqrt_table
+    ldrb    r0, [r1, r0]
+    bx      lr
+.ltorg
 .global f32_bits_to_e5m3
 .thumb_func
 f32_bits_to_e5m3:
