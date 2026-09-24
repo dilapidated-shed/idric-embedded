@@ -65,6 +65,161 @@ Unlike several other embedded targets, the public Infineon documentation gives r
 - family-level core documentation versus exact-device memory/cache capacities;
 - theoretical issue width versus measured throughput of our instruction mix.
 
+
+## Second-pass details: issue pairing, local memories, register classes, and packed DSP
+
+TriCore is the embedded target in this repository where a modern scheduling model can be most explicit.
+
+### Issue width is constrained by pipeline class
+
+"Up to three instructions per cycle" should not be read as a generic three-wide superscalar promise.
+
+The documented execution unit has distinct Integer, Load/Store, and Loop pipelines. Useful scheduling therefore depends on finding instructions from compatible classes.
+
+For a low-precision inner loop, keep separate counts for:
+
+- IP instructions: integer arithmetic, logical/bit work, MAC/DSP operations as applicable;
+- LS instructions: loads, stores, address generation;
+- LP instructions: hardware-loop/control work;
+- instructions that serialize or otherwise block pairing.
+
+A representation that saves one integer instruction but adds an extra load can move pressure from one pipeline to another; the right metric is **pipeline balance**, not only total instruction count.
+
+### Address and data register files are intentionally separate
+
+A0-A15 and D0-D15 are different register files with different roles.
+
+This is useful for stream kernels:
+
+- pointers/indexes can remain in address registers;
+- packed numeric values and arithmetic temporaries can remain in data registers;
+- load/store issue can perform address work without consuming the same register namespace used for arithmetic.
+
+The backend should preserve this distinction early enough that generic register allocation does not create avoidable A↔D shuffling.
+
+Some TriCore operations also use paired data registers for wider values. Treat those as a scarce resource when evaluating any algorithm that widens tiny formats to 64-bit intermediates.
+
+### Local memory versus shared/nonlocal memory
+
+AURIX devices have per-core/local memory structures such as data/program scratchpad and caches, plus shared/nonlocal memories whose exact size and arrangement depend on the selected device.
+
+For the low-precision experiments, every receipt should state whether the hot array is in:
+
+- core-local data scratchpad;
+- cached memory;
+- shared LMU-class memory;
+- flash;
+- another core's local memory;
+- externally attached memory, if relevant to the selected part.
+
+The three-pipeline execution model is most meaningful when the LS pipeline is not stalled on a slow target.
+
+Do not quote one TC3xx part's DSPR/PSPR/cache sizes as "TriCore sizes"; keep capacities per exact device.
+
+### Store buffer and apparent ordering
+
+The store buffer means ordinary non-dependent loads can, under the default ordering mode, bypass older stores except in documented cases such as peripheral/atomic accesses or a full store buffer.
+
+For throughput experiments:
+
+- avoid inserting unnecessary ordering operations;
+- do not infer completion-at-memory from store-instruction retirement;
+- separate producer/consumer dependencies from unrelated streaming stores;
+- record when strict ordering is enabled because it changes performance materially.
+
+This is directly relevant to conversion kernels that stream input → output while continuing to load later input.
+
+### Branch prediction versus hardware loops
+
+TC1.6.2P has dynamic branch prediction and a Loop Pipeline.
+
+A small-format array loop should therefore compare:
+
+- ordinary counted branch;
+- architecture loop mechanism where applicable;
+- unrolling;
+- vector/packed work that reduces trip count.
+
+Classification branches *inside* the loop remain a different problem from the loop-control branch. Record them separately.
+
+### Packed/DSP arithmetic deserves a real lowering experiment
+
+TriCore's DSP facilities include packed arithmetic and dual 16×16 MAC capability.
+
+For E5M3 and the 8-bit formats, useful questions include:
+
+- can two or more decoded significands be held in packed 16-bit lanes?
+- can exponent alignment be expressed with packed shifts or bit-field operations?
+- can small rotations use packed 16-bit multiply/accumulate after an explicit scaling map?
+- is saturating packed arithmetic useful for a chosen non-IEEE coarse operation?
+- does packing reduce LS traffic enough to offset unpack/repack IP instructions?
+
+Do not equate the availability of DSP instructions with native support for the floating encoding. The format semantics still live above this layer.
+
+### Context machinery and ABI cost
+
+TriCore's fast context mechanism and context save areas are part of the architecture's real-time design.
+
+For tiny leaf kernels, the backend should still ask:
+
+- which A/D registers are call-clobbered under the selected ABI?
+- can the kernel remain a leaf?
+- does a helper call for rounding/classification trigger context/register traffic that dwarfs the arithmetic?
+- should special-value handling be outlined into a cold helper or kept inline?
+
+A low-precision primitive should not be benchmarked only as an isolated hand-coded basic block if the generated calling convention makes it expensive in real code.
+
+### TC1.8 must get its own measured table
+
+TC4xx/TC1.8 should eventually have a side-by-side machine table rather than prose inheritance from TC1.6.2P:
+
+```text
+field                       TC1.6.2P / TC3xx       TC1.8 / TC4xx
+pipeline classes            ...                    ...
+issue constraints            ...                    ...
+branch predictor             ...                    ...
+loop mechanism               ...                    ...
+A/D registers                ...                    ...
+packed integer/DSP ops       ...                    ...
+MAC resources                ...                    ...
+FPU facilities               ...                    ...
+local memories               exact part             exact part
+cache geometry               exact part             exact part
+store buffering              ...                    ...
+documented latency table     ...                    ...
+measured kernel table        ...                    ...
+```
+
+Unknown cells should remain explicit.
+
+## Suggested TriCore low-precision receipt
+
+```text
+device
+core_revision
+clock_hz
+representation
+source_memory_region
+destination_memory_region
+values
+cycles_total
+cycles_per_value
+IP_instructions
+LS_instructions
+LP_instructions
+paired_issue_cycles
+single_issue_cycles
+load_stalls
+store_buffer_stalls
+branches
+branch_mispredicts_if_measurable
+packed_DSP_instructions
+MAC_instructions
+register_spills
+```
+
+That record is detailed enough for a machine to distinguish a good arithmetic sequence from one that only looked short in architecture-neutral source.
+
 ## Sources
 
 - Infineon, AURIX TC3xx CPU subsystem:
