@@ -49,6 +49,134 @@ A hardware receipt should therefore name the exact part and record:
 - DMA, if used;
 - measured cycle counts for the small-format kernel.
 
+
+## Second-pass details: addressing-mode cost, constant generator, and accelerator boundary
+
+MSP430's compact instruction syntax hides an important performance fact: **instruction cost depends strongly on addressing mode and extension words**, not only on the mnemonic.
+
+A machine-level cost model should therefore record an operation as something closer to:
+
+```text
+mnemonic + source addressing mode + destination addressing mode + byte/word width
+```
+
+rather than treating every `ADD`, `MOV`, or `CMP` as having one universal cost.
+
+### Constant generator as a code-size/fetch optimization
+
+R2 and R3 are not merely "lost general registers." Their special encodings form the constant generator, allowing common constants to be represented without fetching a separate literal word.
+
+That matters for low-precision field manipulation because masks and small increments occur constantly. Code generation should notice when an operation can use a constant-generator value directly rather than materializing a literal.
+
+The relevant question is not only instruction count:
+
+- did the instruction require an extension word?
+- did it require a memory fetch for a literal?
+- can the constant generator encode the needed mask/value?
+- does changing the field layout turn a common constant into a cheaply encodable one?
+
+A format layout that saves one data bit but forces repeated literal loads may be a bad trade on this machine.
+
+### Byte operations versus 16-bit working values
+
+The datapath and registers are 16-bit, but many operations have byte forms.
+
+For compact values this creates a useful separation:
+
+- **storage/load width** may be one byte;
+- **working width** may immediately become 16 bits;
+- sign/exponent extraction may use byte operations where convenient;
+- E5M3's 9 bits fit naturally in one working register.
+
+Widening an 8-bit stored value into a 16-bit register is therefore not analogous to widening FP8 all the way to Float32 on a larger machine. On MSP430 it is the ordinary native integer width.
+
+The backend should preserve whether a temporary's upper byte is known zero/sign-extended, because that fact can eliminate explicit masking before later comparisons or arithmetic.
+
+### Carry and multiword arithmetic
+
+MSP430's status register and add-with-carry/subtract-with-carry operations make multiword arithmetic possible without a special wide-integer unit.
+
+For these small formats, however, multiword work should be exceptional. A 16-bit register can already hold:
+
+- any current 6/8/9-bit payload;
+- decoded sign/exponent/significand fields;
+- several guard/round/sticky bits for deliberately small significands.
+
+If a scalar E3M2/E4M3/E5M2/E5M3 operation regularly spills into 32-bit multiword arithmetic, that is evidence that the chosen algorithm is carrying more precision/state than the format actually needs.
+
+### Hardware multiplier timing and scheduling
+
+On MSP430 devices that include the classic 16-bit multiplier peripheral:
+
+- the multiplier is memory mapped and independent of the CPU;
+- writing the second operand starts the multiplication;
+- the result can be available by the following instruction under the documented access rules;
+- no multiply opcode is added to the CPU ISA.
+
+This creates a scheduling opportunity similar in spirit to the RP2040 divider: issue the peripheral operation, perform unrelated CPU work, then read the result.
+
+But there is also overhead:
+
+- operand stores;
+- result loads;
+- possible address-mode restrictions;
+- interrupt/concurrency rules around shared peripheral state.
+
+Therefore compare the peripheral against a short shift/add sequence for the **actual small significand widths**. Multiplying two 2- or 3-bit significands does not automatically justify a 16×16 hardware multiply transaction.
+
+### Newer MSP430 accelerators are separate targets
+
+Some later MSP430 FRAM families contain additional hardware such as the Low-Energy Accelerator (LEA). That is not part of "the MSP430 CPU" and must not be treated as family-wide.
+
+If LEA-backed kernels are explored, record them as a separate execution target with:
+
+- exact MCU part;
+- LEA revision/command;
+- source/destination memory restrictions;
+- setup cost;
+- vector length at which setup is amortized;
+- energy/cycle result versus CPU code.
+
+The same rule applies to MPY32 and other peripheral arithmetic blocks.
+
+### Memory technology matters
+
+"MSP430 memory" may mean flash, FRAM, or RAM depending on the part.
+
+For a precise hardware note, record:
+
+- code memory technology;
+- data memory technology;
+- CPU clock;
+- required wait states;
+- whether code and data contend for the same physical memory/bus;
+- DMA interaction;
+- whether a lookup table lives in RAM, flash, or FRAM.
+
+This is especially important for small-format lookup tables: on some parts the arithmetic may be cheaper than repeatedly fetching table entries from slower nonvolatile memory.
+
+## Suggested per-device record
+
+```text
+part_number
+cpu = MSP430 | MSP430X/CPUX
+clock_hz
+code_memory = flash | FRAM | ...
+ram_bytes
+nonvolatile_wait_states
+multiplier = none | MPY | MPY32 | ...
+lea = yes | no
+source_addressing_mode
+destination_addressing_mode
+instruction_words
+cycles
+bytes_per_value
+working_width_bits
+table_location
+```
+
+This keeps family-wide ISA facts from being mistaken for one specific chip's hardware.
+
 ## Sources
 
 - Texas Instruments, *MSP430x3xx Family User's Guide*:
