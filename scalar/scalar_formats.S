@@ -23,6 +23,44 @@ bits8_mul:
         dec     r15
         jne     .L_bits8_mul_loop
         ret
+.global e3m2_add
+e3m2_add:
+        mov     #e3m2_add_table, r14
+        jmp     .L_e3m2_binary_lookup
+.global e3m2_sub
+e3m2_sub:
+        mov     #e3m2_sub_table, r14
+        jmp     .L_e3m2_binary_lookup
+.global e3m2_mul
+e3m2_mul:
+        mov     #e3m2_mul_table, r14
+        jmp     .L_e3m2_binary_lookup
+.global e3m2_div
+e3m2_div:
+        mov     #e3m2_div_table, r14
+        jmp     .L_e3m2_binary_lookup
+.L_e3m2_binary_lookup:
+        and     #0x003f, r12
+        and     #0x003f, r13
+        rla     r12
+        rla     r12
+        rla     r12
+        rla     r12
+        rla     r12
+        rla     r12
+        add     r13, r12
+        add     r12, r14
+        mov.b   @r14, r12
+        and     #0x00ff, r12
+        ret
+.global e3m2_sqrt
+e3m2_sqrt:
+        and     #0x003f, r12
+        mov     #e3m2_sqrt_table, r14
+        add     r12, r14
+        mov.b   @r14, r12
+        and     #0x00ff, r12
+        ret
 .global f32_bits_to_e5m3
 f32_bits_to_e5m3:
         sub     #0x3800, r13
