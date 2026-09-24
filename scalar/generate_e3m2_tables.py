@@ -44,7 +44,10 @@ def add(left: int, right: int) -> int:
 
 
 def subtract(left: int, right: int) -> int:
-    return quantize(decode(left) - decode(right))
+    value = decode(left) - decode(right)
+    if value == 0 and (left & 0x3F) == 0x20 and (right & 0x3F) == 0x00:
+        return 0x20
+    return quantize(value)
 
 
 def multiply(left: int, right: int) -> int:
