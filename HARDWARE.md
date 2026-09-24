@@ -58,6 +58,155 @@ So distinguish:
 
 For Xtensa especially, "LX6" or "LX7" is not enough: configured extensions on the selected ESP chip remain part of the hardware contract.
 
+
+## Second-pass details: register files, packed lanes, and chip-specific cost models
+
+The most important correction to a generic "ESP scalar backend" is that there are at least three qualitatively different execution styles in this one branch:
+
+1. scalar Xtensa LX6/LX7;
+2. scalar RV32I-family cores;
+3. ESP-specific 128-bit packed/vector extensions on parts such as ESP32-S3 and ESP32-P4.
+
+A machine-readable hardware record should say which one is being used before recording any performance claim.
+
+### Xtensa register-window pressure
+
+Xtensa's register-window architecture changes the meaning of "available registers" relative to Arm or RISC-V.
+
+For low-precision inner loops the compiler needs to distinguish:
+
+- physical AR registers present in the configured core;
+- the architectural window visible to a procedure under the chosen ABI;
+- caller/callee/window-rotation costs;
+- whether a tight leaf kernel can avoid window movement entirely.
+
+This matters because unpacking one compact value can consume several temporaries: raw byte/word, sign, exponent, significand, normalization shift, second operand, and result. A scalar kernel that looks register-cheap in an abstract IR can become move/spill heavy after the Xtensa ABI is applied.
+
+The branch should therefore retain both **instruction semantics** and **ABI-visible register pressure** as separate facts.
+
+### ESP32-S3 PIE register geometry
+
+ESP32-S3 provides unusually concrete hardware for packed operations.
+
+The Processor Instruction Extensions add **eight 128-bit QR registers**. For vector operations one QR register can be interpreted as:
+
+- 16 × 8-bit lanes;
+- 8 × 16-bit lanes;
+- 4 × 32-bit lanes.
+
+The TRM explicitly motivates QR because ordinary Xtensa AR registers are only 32 bits wide while the added data path can move **128 bits at a time**. The extended floating-data read/write forms can use that 128-bit access bandwidth even though the native Xtensa floating registers are 32-bit.
+
+For this project, the useful distinction is:
+
+```text
+native FP arithmetic precision      != packed data movement width
+packed integer/vector width         != a native FP8 arithmetic type
+```
+
+E4M3/E5M2 bytes may fit sixteen-at-a-time in one QR register. E3M2 can be stored as one byte per value and get the same lane density, or densely packed at the cost of extra extraction. E5M3 cannot fit one logical value per byte and therefore needs either:
+
+- 16-bit lanes with seven unused bits;
+- a denser bitstream plus unpack/repack;
+- a split representation.
+
+The 128-bit unit makes those choices worth measuring rather than deciding by storage size alone.
+
+### PIE operations relevant to compact formats
+
+The S3 PIE instruction family contains vector operations over 8-, 16-, and 32-bit elements including arithmetic, shifts, comparisons, multiply/accumulate, saturation, and some complex-number-oriented operations.
+
+That suggests several possible uses without claiming native floating semantics:
+
+- parallel extraction of sign/exponent fields;
+- lane-wise exponent comparison;
+- saturating intermediate integer arithmetic;
+- widening 8-bit lanes before significand operations;
+- parallel table-index preparation;
+- packed small-rotation or complex operations after an explicit integer/fixed-point mapping.
+
+A backend should preserve the format's rounding and special-value rules above this layer. PIE is a lowering target, not the definition of E4M3/E5M2/E5M3 semantics.
+
+### RISC-V ESP parts
+
+The C3/C6/H2/P4 scalar cores have the regular RV32 integer-register model rather than Xtensa windows. The baseline register file has 32 integer registers with x0 fixed to zero, but the usable ABI subset and extension set still depend on the selected chip/toolchain.
+
+For compact scalar arithmetic, RISC-V gives a relatively clean lowering vocabulary:
+
+- logical/arithmetic shifts;
+- masks through immediate/register logical operations;
+- signed and unsigned comparisons;
+- multiply/divide where M is present;
+- loads/stores of byte, halfword, and word;
+- conditional branches without a condition-code register.
+
+That last point is worth retaining in comparative notes: ARM/AVR/MSP430 frequently produce flags as a side effect of arithmetic, whereas RISC-V branch conditions consume register operands directly. The best classification sequence can therefore differ even when the abstract test is the same.
+
+### Branch machinery is chip-specific
+
+ESP32-C6/H2 and later cores document branch-target/prediction machinery. Do not export those assumptions backward to ESP32-C3 or sideways to Xtensa.
+
+For a branch-heavy FP8 decoder, record:
+
+- number of conditional branches per value;
+- taken/not-taken distribution;
+- whether special values are rare;
+- whether classification is rewritten branchlessly;
+- whether vector compares replace scalar branches.
+
+A decoder that wins on uniformly random test encodings can lose badly on real tensors dominated by ordinary finite values if its common path is not laid out correctly.
+
+### Memory/cache record
+
+The ESP family makes "where the bytes are" a first-class benchmark field.
+
+A useful record should distinguish at least:
+
+- internal SRAM;
+- instruction RAM;
+- cached external flash;
+- external PSRAM where present;
+- DMA-owned buffers;
+- cacheable versus non-cacheable aliases where the chip exposes them.
+
+For a packed format also record:
+
+- alignment of the first value;
+- stride in bytes/bits;
+- whether values cross 32- or 128-bit boundaries;
+- whether loads are aligned;
+- whether the kernel does read-modify-write on partially packed destination words.
+
+The arithmetic can be identical while memory cost changes by multiples.
+
+### What to extract next from the manuals
+
+The next machine-oriented pass should eventually populate a per-chip table rather than a family paragraph:
+
+```text
+chip
+core ISA/configuration
+pipeline stages
+clock used
+integer register model
+FP register model
+custom vector registers
+vector width
+lane widths
+multiply facilities
+divide facilities
+branch predictor
+internal SRAM regions
+I-cache geometry
+D-cache geometry
+external-memory path
+DMA engines useful to streaming
+alignment rules/penalties
+documented instruction latency
+measured instruction latency
+```
+
+Fields should stay `unknown` rather than being inherited from another ESP chip.
+
 ## Sources
 
 - Espressif, *ESP32 Series Datasheet*:
