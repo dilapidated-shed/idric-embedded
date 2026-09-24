@@ -21,6 +21,61 @@ bits8_mul:
     dec     r20
     brne    .Lbits8_mul_loop
     ret
+.global e3m2_add
+e3m2_add:
+    ldi     r18, lo8(e3m2_add_table)
+    ldi     r19, hi8(e3m2_add_table)
+    rjmp    .L_e3m2_binary_lookup
+.global e3m2_sub
+e3m2_sub:
+    ldi     r18, lo8(e3m2_sub_table)
+    ldi     r19, hi8(e3m2_sub_table)
+    rjmp    .L_e3m2_binary_lookup
+.global e3m2_mul
+e3m2_mul:
+    ldi     r18, lo8(e3m2_mul_table)
+    ldi     r19, hi8(e3m2_mul_table)
+    rjmp    .L_e3m2_binary_lookup
+.global e3m2_div
+e3m2_div:
+    ldi     r18, lo8(e3m2_div_table)
+    ldi     r19, hi8(e3m2_div_table)
+    rjmp    .L_e3m2_binary_lookup
+.L_e3m2_binary_lookup:
+    andi    r24, 0x3f
+    andi    r22, 0x3f
+    mov     r30, r24
+    clr     r31
+    lsl     r30
+    rol     r31
+    lsl     r30
+    rol     r31
+    lsl     r30
+    rol     r31
+    lsl     r30
+    rol     r31
+    lsl     r30
+    rol     r31
+    lsl     r30
+    rol     r31
+    add     r30, r22
+    clr     r20
+    adc     r31, r20
+    add     r30, r18
+    adc     r31, r19
+    lpm     r24, Z
+    ret
+.global e3m2_sqrt
+e3m2_sqrt:
+    andi    r24, 0x3f
+    mov     r30, r24
+    clr     r31
+    ldi     r18, lo8(e3m2_sqrt_table)
+    ldi     r19, hi8(e3m2_sqrt_table)
+    add     r30, r18
+    adc     r31, r19
+    lpm     r24, Z
+    ret
 .global f32_bits_to_e5m3
 f32_bits_to_e5m3:
     subi    r22, 0x00
