@@ -16,6 +16,37 @@ bits8_mul:
     mul     a0, a0, a1
     andi    a0, a0, 255
     ret
+.globl e3m2_add
+e3m2_add:
+    la      t0, e3m2_add_table
+    j       .Le3m2_binary_lookup
+.globl e3m2_sub
+e3m2_sub:
+    la      t0, e3m2_sub_table
+    j       .Le3m2_binary_lookup
+.globl e3m2_mul
+e3m2_mul:
+    la      t0, e3m2_mul_table
+    j       .Le3m2_binary_lookup
+.globl e3m2_div
+e3m2_div:
+    la      t0, e3m2_div_table
+    j       .Le3m2_binary_lookup
+.Le3m2_binary_lookup:
+    andi    a0, a0, 63
+    andi    a1, a1, 63
+    slli    t1, a0, 6
+    add     t1, t1, a1
+    add     t0, t0, t1
+    lbu     a0, 0(t0)
+    ret
+.globl e3m2_sqrt
+e3m2_sqrt:
+    andi    a0, a0, 63
+    la      t0, e3m2_sqrt_table
+    add     t0, t0, a0
+    lbu     a0, 0(t0)
+    ret
 .globl f32_bits_to_e5m3
 f32_bits_to_e5m3:
     lui     t0, 0x38000
